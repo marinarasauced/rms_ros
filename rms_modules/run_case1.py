@@ -64,3 +64,4 @@ def run_case1(args):
 
     log_task("registering pointclouds")
     register_pointclouds(write_directory)
+    log_done("wrote registered pointcloud")

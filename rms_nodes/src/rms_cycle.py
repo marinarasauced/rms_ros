@@ -6,7 +6,6 @@ from sensor_msgs.msg import PointCloud2
 import tf2_ros
 
 import argparse
-import datetime
 import numpy as np
 import os
 import open3d as o3d
@@ -23,6 +22,7 @@ from rms_modules.pointclouds import *
 class RMSCycle(Node):
     def __init__(self, configuration, write_directory):
         super().__init__("pcd_collecting")
+        
         self.subscription = self.create_subscription(
             PointCloud2,
             "/camera/depth/color/points",
@@ -42,57 +42,26 @@ class RMSCycle(Node):
         self.bot = get_vx_bot()
         self.data = None
 
-        self.tf_buffer = tf2_ros.Buffer(node=self)
-        self.tf_listener = tf2_ros.TransformListener(buffer=self.tf_buffer, node=self)
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         self.counter = 1
 
-        self.trans_path = os.path.join(self.write_dir, f"{self.robot_model}_transormations.txt")
+        self.trans_path = os.path.join(self.write_dir, f"{self.robot_model}_transformations.txt")
         self.trans_file = open(self.trans_path, 'a')
 
         self.load_waypoints()
 
-    #
-    def get_write_path(self):
-        scan_path = os.path.join(self.write_dir, f"{self.robot_model}-{self.counter:03d}.pcd")
-        return scan_path
-
-    #
-    def load_waypoints(self):
-        with open(os.path.join(self.path2config, "waypoints.txt")) as file: 
-            lines = file.readlines()
-
-        data = []
-        for line in lines:
-            values = [float(x) for x in line.strip().split(',')]
-            data.append(values)
-
-        self.waypoints = np.array(data)
-
-    #
-    def move_to_waypoint(self, x, y, z):
-        self.bot.arm.set_ee_pose_components(x=x, y=y, z=z)
-        time.sleep(1)  # pause while capturing pointcloud
-
-    #
-    def callback_pointcloud(self, data):
-        self.data = data
+    def callback_pointcloud(self, msg):
+        self.data = msg
         self.capture_pointcloud()
-  
-    #
-    def wait_for_pointcloud(self):
-        self.data = None
-        tic = time.time()
-        while self.data is None:
-            rclpy.spin_once(self, timeout_sec=0.1)
-            if time.time() - tic > 5:  # timeout after 5 seconds
-                print("timeout waiting for pointcloud data")
-                break
 
-    #
     def capture_pointcloud(self):
         if self.data:
             try:
-                transform = self.tf_buffer.lookup_transform('camera_color_optical_frame', 'world', rclpy.time.Time())
+                transform = None
+                while transform is None:
+                    transform = self.get_transform()
+                    rclpy.spin_once(self)
                 
                 self.get_logger().info(f"translation: (x: {transform.transform.translation.x:.3f}, "
                                     f"y: {transform.transform.translation.y:.3f}, "
@@ -107,14 +76,52 @@ class RMSCycle(Node):
                 self.get_logger().warn(f"could not transform: {e}")
                 return
             
-            print("saving pointcloud ", self.counter)
+            log_doing(f"saving pointcloud {self.counter}")
 
             scan_path = self.get_write_path()
             self.write_pointcloud(self.data, scan_path)
             self.write_transform(transform)
             self.counter += 1
 
-    #
+    def get_transform(self):
+        try:
+            transform = self.tf_buffer.lookup_transform('camera_color_optical_frame', 'world', rclpy.time.Time())
+            return transform
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            self.get_logger().warn(f"could not transform: {e}")
+            return None
+        
+    def get_write_path(self):
+        scan_path = os.path.join(self.write_dir, f"{self.robot_model}-{self.counter:03d}.pcd")
+        return scan_path
+    
+    def load_waypoints(self):
+        with open(os.path.join(self.path2config, "waypoints.txt")) as file: 
+            lines = file.readlines()
+
+        data = []
+        for line in lines:
+            values = [float(x) for x in line.strip().split(',')]
+            data.append(values)
+
+        self.waypoints = np.array(data)
+
+    def move_to_waypoint(self, x, y, z):
+        self.bot.arm.set_ee_pose_components(x=x, y=y, z=z)
+        tic = time.time()
+        toc = tic + 1
+        while time.time() < toc:
+            pass
+
+    def wait_for_pointcloud(self):
+        self.data = None
+        tic = time.time()
+        while self.data is None:
+            rclpy.spin_once(self, timeout_sec=0.1)
+            if time.time() - tic > 5:  # timeout after 5 seconds
+                log_doing("timeout waiting for pointcloud data")
+                break
+
     def write_pointcloud(self, data, path):
         gen = read_pointcloud(data, skip_nans=True)
         int_data = list(gen)
@@ -126,7 +133,6 @@ class RMSCycle(Node):
         o3dcloud.colors = o3d.utility.Vector3dVector(rgb / 255.0)
         o3d.io.write_point_cloud(path, o3dcloud)
 
-    #
     def write_transform(self, transform: TransformStamped):
         translation = np.array([
             transform.transform.translation.x,
@@ -142,9 +148,11 @@ class RMSCycle(Node):
         transformation_matrix = np.eye(4)
         transformation_matrix[:3, :3] = o3d.geometry.get_rotation_matrix_from_quaternion(rotation)
         transformation_matrix[:3, 3] = translation
+        formatted_array = np.array([[f"{x:.10f}" for x in row] for row in transformation_matrix])
         with open(self.trans_path, "a") as f:
-            f.write(f"{self.counter:03d}: {transformation_matrix}\n")
+            f.write(f"{self.counter:03d}: {formatted_array}\n")
 
+        
     def run(self):
         for point in self.waypoints:
             self.move_to_waypoint(x=point[1], y=point[2], z=point[3])
@@ -169,3 +177,4 @@ def main(args=None):
 
 if __name__=="__main__":
     main()
+
