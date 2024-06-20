@@ -1,0 +1,206 @@
+import argparse
+import rclpy
+import numpy as np
+import open3d as o3d
+import os.path
+import sys
+import tf2_ros
+import time
+
+from rms_modules.manipulators import get_VXbot
+from rms_modules.pointclouds import read_pcd, unpack_rgb
+
+from geometry_msgs.msg import TransformStamped
+from sensor_msgs.msg import PointCloud2
+
+
+class PCDCollection(rclpy.node.Node):
+    def __init__(self, robot_model, path):
+        """
+        Initialize the PCDCollection class instance.
+
+        @param robot_model: The model of the robot i.e., vx250 or vx300s.
+        """
+
+        super().__init__(f"{robot_model}_pcd_collection")
+
+        # Input parameters:
+        self.declare_parameters("robot_model", robot_model)
+        self.robot_model = robot_model
+        self.declare_parameters("path", path)
+        self.write_dir = path
+
+        self.tf_name = f"{self.robot_model}_tfs.txt"
+        self.tf_path = os.path.join(self.write_dir, self.tf_name)
+
+        # ROS publishers and subscribers:
+        self.counter = 1
+        self.data = None
+        self.subscription = self.create_subscription(
+            PointCloud2,
+            "/camera/depth/color/points",
+            self.callback_pcd,
+            10
+        )
+
+        #
+        self.viewpoints_path = os.path.join(os.path.expanduser("~/rms_ros/src/rms_ros/config"),
+                                            f"{self.robot_model}_viewpoints.txt")
+        self.viewpoints = self.load_viewpoints()
+        self.bot = get_VXbot(self.robot_model)
+
+        #
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+
+    def callback_pcd(self, msg):
+        """
+        Callback function for ROS2 PointCloud2 messages.
+
+        @param msg: ROS2 PointCloud2 message.
+        """
+
+        self.data = msg
+        self.sample_pcd()
+
+    def sample_pcd(self):
+        """
+        Sample a point cloud.
+        """
+
+        if self.data:
+            transform = self.get_transform()
+            scan_name = f"{self.robot_model}_{self.counter:03d}.pcd"
+            scan_path = os.path.join(self.write_dir, scan_name)
+            self.write_pcd(scan_path)
+            self.write_tf(transform)
+            self.counter += 1
+
+    def get_transform(self):
+        """
+        Get the current transform from world to the camera frame.
+
+        @return
+        """
+
+        return TransformStamped()
+
+    def write_pcd(self, path):
+        """
+        Write the measured point cloud as a PCD file.
+
+        @param path: The path at which the PCD file is written.
+        """
+
+        gen = read_pcd(self.data, skip_nans=True)
+        ints = list(gen)
+        xyz = np.array([[x[0], x[1], x[2]] for x in ints])
+        rgb = np.array([unpack_rgb(x[3]) for x in ints])
+        o3d_cloud = o3d.geometry.PointCloud()
+        o3d_cloud.points = o3d.utility.Vector3dVector(xyz)
+        o3d_cloud.colors = o3d.utility.Vector3dVector(rgb / 255.0)
+        o3d.io.write_point_cloud(path, o3d_cloud)
+
+    def write_tf(self, transform):
+        """
+        Write the measured transform from world to the camera frame to a new line in the transformations file.
+
+        @param transform: The current transformation matrix from world to the camera frame.
+        """
+
+        translation = np.array([
+            transform.transform.translation.x,
+            transform.transform.translation.y,
+            transform.transform.translation.z
+        ])
+        rotation = np.array([
+            transform.transform.rotation.x,
+            transform.transform.rotation.y,
+            transform.transform.rotation.z,
+            transform.transform.rotation.w
+        ])
+        tf_matrix = np.eye(4, 4)
+        tf_matrix[:3, :3] = o3d.geometry.get_rotation_matrix_from_quaternion(rotation)
+        tf_matrix[:3, 3] = translation
+        formatted_tf_matrix = np.array([[f"{x:.10f}" for x in row] for row in tf_matrix])
+        with open(self.tf_path, "a") as file:
+            file.write(f"{self.counter:03d}: {formatted_tf_matrix}\n")
+
+    def load_viewpoints(self):
+        """
+        Load all viewpoints from the respective TXT file.
+
+        @return: A numpy array containing the viewpoints.
+        """
+
+        with open(self.viewpoints_path, "r") as file:
+            lines = file.readlines()
+        data = []
+        for line in lines:
+            values = [float(x) for x in line.strip().split(",")]
+            data.append(values)
+        return np.array(data)
+
+    def move_to_viewpoint(self, x, y, z):
+        """
+        Move the manipulator to the current viewpoint.
+        """
+
+        self.bot.arm.set_ee_pose_components(x=x, y=y, z=z)
+        duration = 1
+        tic = time.time()
+        while time.time() < tic + duration:
+            pass
+
+    def wait_for_pcd(self):
+        """
+        Wait for a PointCloud2 message to be received or timeout after five seconds.
+        """
+
+        self.data = None
+        tic = time.time()
+        while self.data is None:
+            toc = time.time()
+            rclpy.spin_once(self, timeout_sec=0.1)
+            if toc - tic > 5.0:
+                break
+
+    def run(self):
+        """
+        Run the node.
+
+        This function will cycle the current manipulator through all viewpoints and collect a point cloud sample at each
+        viewpoint. After a point cloud is sampled at all viewpoints, the manipulator returns to the home position (to
+        prevent collisions with any baseplate features) and then the sleep position.
+        """
+
+        for view in self.viewpoints:
+            self.move_to_viewpoint(x=view[1], y=view[2], z=view[3])
+            self.wait_for_pcd()
+        self.bot.arm.go_to_home_pose()
+        self.bot.arm.go_to_sleep_pose()
+        self.bot.shutdown()
+
+
+def main():
+    """
+
+
+    """
+
+    parser = argparse.ArgumentParser(description="iterate through viewpoints and collect point clouds")
+    parser.add_argument("--robot_model", type=str, required=True, help="robot model i.e., vx250 or vx300s")
+    parser.add_argument("--path", type=str, required=True, help="path to pcd scan directory")
+    args = parser.parse_args()
+
+    ros_args = sys.argv[1:]
+    ros_args.extend(["--ros-args", "--param", f"robot_model={args.robot_model}", "--param", f"path={args.path}"])
+
+    rclpy.init(args=ros_args)
+    node = PCDCollection(robot_model=args.robot_model, path=args.path)
+    node.run()
+    rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
