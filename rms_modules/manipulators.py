@@ -151,11 +151,11 @@ def get_primary_write_dir(configuration):
         return path
 
 
-def get_secondary_write_dir():
+def get_secondary_write_dir(secondary):
     """
     Get the PCD write directory for the secondary manipulator.
 
     @return: The path to the PCD write directory.
     """
 
-    return os.path.expanduser("~/rms_ros/src/rms_ros/scans/")
+    return f"/home/{secondary.user}/rms_ros/src/rms_ros/scans/"

@@ -45,7 +45,7 @@ def main():
 
     # Collect point clouds:
     primary_dir = get_primary_write_dir(2)
-    secondary_dir = get_secondary_write_dir()
+    secondary_dir = get_secondary_write_dir(secondary)
     primary_path_to_pcd_collection = os.path.expanduser(f"/home/{primary.user}/rms_ros/src/rms_ros/rms_nodes/src/pcd_collection.py")
     secondary_path_to_pcd_collection = os.path.expanduser(f"/home/{secondary.user}/rms_ros/src/rms_ros/rms_nodes/src/pcd_collection.py")
     primary_cmd = [f"python3",
