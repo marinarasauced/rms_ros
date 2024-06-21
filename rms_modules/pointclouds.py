@@ -86,3 +86,4 @@ def unpack_rgb(packed):
     b = (pack & 0x000000FF)
 
     return [r, g, b]
+

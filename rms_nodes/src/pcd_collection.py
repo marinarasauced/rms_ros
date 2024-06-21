@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import rclpy
 import numpy as np
@@ -7,10 +9,10 @@ import sys
 import tf2_ros
 import time
 
-from rms_modules.manipulators import get_VXbot
-from rms_modules.pointclouds import read_pcd, unpack_rgb
+sys.path.append(os.path.expanduser("~/rms_ros/src/rms_ros/"))
 
-from geometry_msgs.msg import TransformStamped
+from rms_modules.manipulators import get_vx_bot
+from rms_modules.pointclouds import read_pcd, unpack_rgb
 from sensor_msgs.msg import PointCloud2
 
 
@@ -25,9 +27,11 @@ class PCDCollection(rclpy.node.Node):
         super().__init__(f"{robot_model}_pcd_collection")
 
         # Input parameters:
-        self.declare_parameters("robot_model", robot_model)
+        self.declare_parameters(namespace="", parameters=[
+            ("robot_model", robot_model),
+            ("path", path),
+        ])
         self.robot_model = robot_model
-        self.declare_parameters("path", path)
         self.write_dir = path
 
         self.tf_name = f"{self.robot_model}_tfs.txt"
@@ -36,6 +40,8 @@ class PCDCollection(rclpy.node.Node):
         # ROS publishers and subscribers:
         self.counter = 1
         self.data = None
+        self.child_frame = f"{self.robot_model}/camera_link"
+        self.parent_frame = f"{self.robot_model}/ee_arm_link"
         self.subscription = self.create_subscription(
             PointCloud2,
             "/camera/depth/color/points",
@@ -47,7 +53,7 @@ class PCDCollection(rclpy.node.Node):
         self.viewpoints_path = os.path.join(os.path.expanduser("~/rms_ros/src/rms_ros/config"),
                                             f"{self.robot_model}_viewpoints.txt")
         self.viewpoints = self.load_viewpoints()
-        self.bot = get_VXbot(self.robot_model)
+        self.bot = get_vx_bot(self.robot_model)
 
         #
         self.tf_buffer = tf2_ros.Buffer()
@@ -80,10 +86,23 @@ class PCDCollection(rclpy.node.Node):
         """
         Get the current transform from world to the camera frame.
 
-        @return
+        @return: Transform from world to the camera frame.
         """
 
-        return TransformStamped()
+        print("getting tf")
+        tf_future = self.tf_buffer.wait_for_transform_async(
+            target_frame=f"{self.robot_model}/base_link",
+            source_frame=f"{self.robot_model}/camera_link",
+            time=rclpy.time.Time()
+        )
+        rclpy.spin_until_future_complete(self, tf_future)
+        transform = self.tf_buffer.lookup_transform(
+            f"{self.robot_model}/base_link",
+            f"{self.robot_model}/camera_link",
+            rclpy.time.Time()
+        )
+        print("got tf")
+        return transform
 
     def write_pcd(self, path):
         """
@@ -176,7 +195,8 @@ class PCDCollection(rclpy.node.Node):
 
         for view in self.viewpoints:
             self.move_to_viewpoint(x=view[1], y=view[2], z=view[3])
-            self.wait_for_pcd()
+            self.write_tf(self.get_transform())
+            #self.wait_for_pcd()
         self.bot.arm.go_to_home_pose()
         self.bot.arm.go_to_sleep_pose()
         self.bot.shutdown()
@@ -194,12 +214,15 @@ def main():
     args = parser.parse_args()
 
     ros_args = sys.argv[1:]
-    ros_args.extend(["--ros-args", "--param", f"robot_model={args.robot_model}", "--param", f"path={args.path}"])
+    ros_args.extend(["--ros-args", "--param", f"robot_model:={args.robot_model}", "--param", f"path:={args.path}"])
 
     rclpy.init(args=ros_args)
     node = PCDCollection(robot_model=args.robot_model, path=args.path)
     node.run()
-    rclpy.shutdown()
+    try:
+        rclpy.shutdown()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
