@@ -205,8 +205,7 @@ class PCDCollection(rclpy.node.Node):
 
 def main():
     """
-
-
+    Collect PCD files.
     """
 
     parser = argparse.ArgumentParser(description="iterate through viewpoints and collect point clouds")

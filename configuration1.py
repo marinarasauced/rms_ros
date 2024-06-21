@@ -48,6 +48,12 @@ def main():
                     ])
 
     # Register point clouds:
+    path_to_pcd_registration = os.path.expanduser("~/rms_ros/src/rms_ros/rms_nodes/src/pcd_registration.py")
+    subprocess.run([f"python3",
+                    f"{path_to_pcd_registration}",
+                    f"--path",
+                    f"{primary_dir}"
+                    ])
 
 
 if __name__ == "__main__":

@@ -18,9 +18,6 @@ class PCDRegistration(rclpy.node.Node):
         """
 
         super().__init__(f"pcd_registration")
-
-        # Input parameters:
-
         self.declare_parameters(namespace="", parameters=[
             ("path", path),
         ])
@@ -103,6 +100,18 @@ class PCDRegistration(rclpy.node.Node):
                 print("tf matrix is not formatted properly")
             pcd.transform(tf)
 
+    def remove_pcd_outlier(self, pcd):
+        """
+        Remove statistical outliers from a PCD file
+
+        @param pcd: The current PCD file.
+        @return: The current PCD file after statistical outliers are removed.
+        """
+
+        _, idx = pcd.remove_statistical_outlier(nb_neighbors=100, std_ratio=0.1)
+        filtered = pcd.select_by_index(idx)
+        return filtered
+
     def register_pcds(self, pcd, scan):
         """
         Register a PCD file into the current scan PCD.
@@ -133,6 +142,7 @@ class PCDRegistration(rclpy.node.Node):
         self.transform_pcds()
         scan = o3d.geometry.PointCloud()
         for idx, pcd in enumerate(self.pcd_):
+            pcd = self.remove_pcd_outlier(pcd)
             if idx == 0:
                 scan += pcd
             else:
@@ -143,8 +153,7 @@ class PCDRegistration(rclpy.node.Node):
 
 def main():
     """
-
-
+    Register PCD files.
     """
 
     parser = argparse.ArgumentParser(description="iterate through viewpoints and collect point clouds")
