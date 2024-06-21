@@ -49,7 +49,7 @@ class PCDCollection(Node):
         self.status = False
         self.subscription = self.create_subscription(
             PointCloud2,
-            "/camera/depth/color/points",
+            f"/{robot_model}/camera/depth/color/points",
             self.callback_pcd,
             10
         )

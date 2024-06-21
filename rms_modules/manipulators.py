@@ -3,6 +3,7 @@ import json
 import os.path
 from paramiko import SSHClient, AutoAddPolicy
 import re
+from scp import SCPClient
 import subprocess
 
 from interbotix_xs_modules.xs_robot.arm import InterbotixManipulatorXS
@@ -37,11 +38,22 @@ class VXManipulator:
         """
 
         try:
-            stdin, stdout, stderr = self.ssh.exec_command(command)
-            print(stderr.readlines())
+            self.ssh.exec_command(command)
         except:
             print("failed")
             return
+        
+    def download_from_client(self, remote_path, local_path):
+        """
+        Download all files from a remote path to a local path.
+
+        @param remote_path: The path to the repository on the remote machine.
+        @param local_path: The path where the repository will be downloaded to on the local machine.
+        """
+
+        scp = SCPClient(self.ssh.get_transport())
+        scp.get(remote_path=remote_path, local_path=local_path, recursive=True)
+        scp.close()
 
     def close_client(self):
         """

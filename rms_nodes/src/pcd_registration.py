@@ -55,6 +55,7 @@ class PCDRegistration(Node):
         """
 
         paths = self.vx250_files + self.vx300s_files
+        print
         return [o3d.io.read_point_cloud(pcd) for pcd in paths]
 
     def get_pcd_transformations(self):

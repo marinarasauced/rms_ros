@@ -1,5 +1,7 @@
 import os.path
+import shutil
 import subprocess
+import time
 
 from rms_modules.manipulators import VXManipulator, get_vx_node_status, check_for_file, get_primary_write_dir, get_secondary_write_dir
 from rms_modules.pointclouds import write_pcd_from_stl
@@ -58,9 +60,20 @@ def main():
     secondary_cmd = f"source /opt/ros/humble/setup.bash && source ~/rms_ros/install/setup.bash && source ~/interbotix_ws/install/setup.bash && python3 {secondary_path_to_pcd_collection} --robot_model {secondary.robot_model} --path {secondary_dir}"
     secondary.get_client()
     secondary.execute_client_command(secondary_cmd)
+    time.sleep(0.65)
     subprocess.run(primary_cmd)
 
     input("press enter")
+
+    # Download point clouds from secondary:
+    secondary.download_from_client(remote_path=secondary_dir, local_path=primary_dir)
+    secondary.close_client()
+    for filename in os.listdir(os.path.join(primary_dir, "scans/")):
+        src = os.path.join(os.path.join(primary_dir, "scans/"), filename)
+        dstn = os.path.join(primary_dir, filename)
+        shutil.move(src, dstn)
+    shutil.rmtree(os.path.join(primary_dir, "scans/"))
+
 
     # Register point clouds:
     path_to_pcd_registration = os.path.expanduser("~/rms_ros/src/rms_ros/rms_nodes/src/pcd_registration.py")
