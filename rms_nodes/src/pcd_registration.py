@@ -26,8 +26,8 @@ class PCDRegistration(Node):
         ])
         self.dir = path
         self.vx250_files, self.vx300s_files = self.get_pcd_file_paths()
-        self.pcd_ = self.get_pcd_files()
-        self.tf_ = self.get_pcd_transformations()
+        self.pcd_vx250 = self.get_pcd_files(self.vx250_files)
+        self.pcd_vx300s = self.get_pcd_files(self.vx300s_files)
 
     def get_pcd_file_paths(self):
         """
@@ -47,15 +47,14 @@ class PCDRegistration(Node):
             return 0
         return vx250_files, vx300s_files
 
-    def get_pcd_files(self):
+    def get_pcd_files(self, paths):
         """
         Get a list of all PCD files contents.
 
+        @param paths : The list of paths to all PCD files.
         @return: A list of all content from the previously identified PCD files.
         """
 
-        paths = self.vx250_files + self.vx300s_files
-        print
         return [o3d.io.read_point_cloud(pcd) for pcd in paths]
 
     def get_pcd_transformations(self):
@@ -141,11 +140,11 @@ class PCDRegistration(Node):
         @return: A transformation matrix to align pcd to scan.
         """
 
-        criteria = o3d.pipelines.registration.ICPConvergenceCriteria(1e-08, 1e-08, 200)
+        criteria = o3d.pipelines.registration.ICPConvergenceCriteria(1e-09, 1e-09, 500)
         pcd_down = pcd.voxel_down_sample(voxel_size=0.005)
         scan_down = scan.voxel_down_sample(voxel_size=0.005)
         reg_p2p = o3d.pipelines.registration.registration_icp(
-            pcd_down, scan_down, 0.05, np.eye(4, 4),
+            pcd_down, scan_down, 0.1, np.eye(4, 4),
             o3d.pipelines.registration.TransformationEstimationPointToPoint(with_scaling=False),
             criteria
         )
@@ -160,19 +159,29 @@ class PCDRegistration(Node):
         """
 
         #self.transform_pcds()
-        scan = o3d.geometry.PointCloud()
-        for idx, pcd in enumerate(self.pcd_):
+        scan1 = o3d.geometry.PointCloud()
+        scan2 = o3d.geometry.PointCloud()
+        for idx, pcd in enumerate(self.pcd_vx250):
             pcd = self.remove_pcd_outlier(pcd)
             if idx == 0:
-                scan += pcd
+                scan1 += pcd
             else:
-                tf = self.register_pcds(pcd, scan)
+                tf = self.register_pcds(pcd, scan1)
                 pcd.transform(tf)
-                scan += pcd
+                scan1 += pcd
+        for idx, pcd in enumerate(self.pcd_vx300s):
+            pcd = self.remove_pcd_outlier(pcd)
+            if idx == 0:
+                scan2 += pcd
+            else:
+                tf = self.register_pcds(pcd, scan2)
+                pcd.transform(tf)
+                scan2 += pcd
 
-        scan = self.filter_by_x(scan, 1.0)
-        scan = self.filter_by_z(scan, 1.0)
-        o3d.visualization.draw_geometries([scan])
+        scan1 = self.filter_by_z(scan1, 1.0)
+        o3d.visualization.draw_geometries([scan1])
+        scan2 = self.filter_by_z(scan2, 1.0)
+        o3d.visualization.draw_geometries([scan2])        
 
 
 def main():
