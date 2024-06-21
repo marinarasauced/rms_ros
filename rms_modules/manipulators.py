@@ -1,6 +1,7 @@
 import datetime
 import json
 import os.path
+from paramiko import SSHClient, AutoAddPolicy
 import re
 import subprocess
 
@@ -14,6 +15,43 @@ class VXManipulator:
         """
 
         self.robot_model, self.host, self.user, self.password = load_config_json(f"{category}.json")
+        self.ssh = None
+
+    def get_client(self):
+        """
+        """
+
+        if self.ssh is None:
+            ssh = SSHClient()
+            ssh.load_system_host_keys()
+            ssh.set_missing_host_key_policy(AutoAddPolicy())
+            ssh.connect(
+                hostname=self.host,
+                username=self.user,
+                password=self.password
+            )
+            self.ssh = ssh
+
+    def execute_client_command(self, command):
+        """
+        """
+
+        try:
+            stdin, stdout, stderr = self.ssh.exec_command(command)
+            print(stderr.readlines())
+        except:
+            print("failed")
+            return
+
+    def close_client(self):
+        """
+        """
+
+        try:
+            self.ssh.close()
+        except:
+            return
+
 
 
 def load_config_json(name):

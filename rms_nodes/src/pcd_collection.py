@@ -39,6 +39,10 @@ class PCDCollection(Node):
         self.tf_name = f"{self.robot_model}_tfs.txt"
         self.tf_path = os.path.join(self.write_dir, self.tf_name)
 
+        if not os.path.exists(self.write_dir):
+            os.makedirs(self.write_dir)
+            open(os.path.join(os.path.expanduser("~/rms_ros/src/rms_ros/scans"), f"{self.robot_model}_tfs.txt"), "a").close()
+
         # ROS publishers and subscribers:
         self.counter = 1
         self.data = None

@@ -1,6 +1,6 @@
 {
     "robot_model": "vx300s",
-    "host": "ip_address",
+    "host": "130.215.55.221",
     "username": "viperx300",
     "password": "viperx300"
 }
