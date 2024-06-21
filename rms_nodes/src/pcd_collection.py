@@ -22,6 +22,7 @@ class PCDCollection(rclpy.node.Node):
         Initialize the PCDCollection class instance.
 
         @param robot_model: The model of the robot i.e., vx250 or vx300s.
+        @param path: The write path of the PCD files.
         """
 
         super().__init__(f"{robot_model}_pcd_collection")
