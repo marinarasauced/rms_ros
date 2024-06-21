@@ -2,6 +2,7 @@
 
 import argparse
 import rclpy
+from rclpy.node import Node
 import numpy as np
 import open3d as o3d
 import os.path
@@ -16,7 +17,7 @@ from rms_modules.pointclouds import read_pcd, unpack_rgb
 from sensor_msgs.msg import PointCloud2
 
 
-class PCDCollection(rclpy.node.Node):
+class PCDCollection(Node):
     def __init__(self, robot_model, path):
         """
         Initialize the PCDCollection class instance.
@@ -41,8 +42,7 @@ class PCDCollection(rclpy.node.Node):
         # ROS publishers and subscribers:
         self.counter = 1
         self.data = None
-        self.child_frame = f"{self.robot_model}/camera_link"
-        self.parent_frame = f"{self.robot_model}/ee_arm_link"
+        self.status = False
         self.subscription = self.create_subscription(
             PointCloud2,
             "/camera/depth/color/points",
@@ -75,13 +75,12 @@ class PCDCollection(rclpy.node.Node):
         Sample a point cloud.
         """
 
-        if self.data:
-            transform = self.get_transform()
+        if self.data and self.status:
             scan_name = f"{self.robot_model}_{self.counter:03d}.pcd"
             scan_path = os.path.join(self.write_dir, scan_name)
             self.write_pcd(scan_path)
-            self.write_tf(transform)
-            self.counter += 1
+            
+
 
     def get_transform(self):
         """
@@ -90,20 +89,27 @@ class PCDCollection(rclpy.node.Node):
         @return: Transform from world to the camera frame.
         """
 
-        print("getting tf")
-        tf_future = self.tf_buffer.wait_for_transform_async(
-            target_frame=f"{self.robot_model}/base_link",
-            source_frame=f"{self.robot_model}/camera_link",
-            time=rclpy.time.Time()
-        )
-        rclpy.spin_until_future_complete(self, tf_future)
-        transform = self.tf_buffer.lookup_transform(
-            f"{self.robot_model}/base_link",
-            f"{self.robot_model}/camera_link",
-            rclpy.time.Time()
-        )
-        print("got tf")
-        return transform
+        try:
+            tf_future = self.tf_buffer.wait_for_transform_async(
+                target_frame=f"{self.robot_model}/base_link",
+                source_frame=f"{self.robot_model}/camera_depth_frame",
+                time=rclpy.time.Time()
+            )
+            rclpy.spin_until_future_complete(self, tf_future)
+
+            # Check if the future was successfully completed
+            if tf_future.done():
+                transform = self.tf_buffer.lookup_transform(
+                    f"{self.robot_model}/base_link",
+                    f"{self.robot_model}/camera_depth_frame",
+                    rclpy.time.Time()
+                )
+                return transform
+            else:
+                print("Transform not available yet, retrying...")
+        except (tf2_ros.TransformException, tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as ex:
+            print(f"Transform exception occurred: {ex}, retrying...")
+
 
     def write_pcd(self, path):
         """
@@ -167,7 +173,7 @@ class PCDCollection(rclpy.node.Node):
         """
 
         self.bot.arm.set_ee_pose_components(x=x, y=y, z=z)
-        duration = 1
+        duration = 2  # cannot be 1 for correct tfs
         tic = time.time()
         while time.time() < tic + duration:
             pass
@@ -178,6 +184,7 @@ class PCDCollection(rclpy.node.Node):
         """
 
         self.data = None
+        self.status = True
         tic = time.time()
         while self.data is None:
             toc = time.time()
@@ -194,13 +201,18 @@ class PCDCollection(rclpy.node.Node):
         prevent collisions with any baseplate features) and then the sleep position.
         """
 
+        self.get_transform()
         for view in self.viewpoints:
             self.move_to_viewpoint(x=view[1], y=view[2], z=view[3])
+            self.wait_for_pcd()
             self.write_tf(self.get_transform())
-            #self.wait_for_pcd()
+            self.counter += 1
         self.bot.arm.go_to_home_pose()
         self.bot.arm.go_to_sleep_pose()
-        self.bot.shutdown()
+        try:
+            self.bot.shutdown()
+        except:
+            pass
 
 
 def main():

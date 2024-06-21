@@ -101,5 +101,5 @@ def write_pcd_from_stl(read, write):
     if not os.path.exists(write):
         os.makedirs(write)
     stl = o3d.io.read_triangle_mesh(read)
-    pcd = stl.sample_points_uniform(1000000)
+    pcd = stl.sample_points_uniformly(1000000)
     o3d.io.write_point_cloud(write, pcd)

@@ -3,13 +3,14 @@
 import argparse
 import glob
 import rclpy
+from rclpy.node import Node
 import numpy as np
 import open3d as o3d
 import os.path
 import sys
 
 
-class PCDRegistration(rclpy.node.Node):
+class PCDRegistration(Node):
     def __init__(self, path):
         """
         Initialize the PCDCollection class instance.
@@ -18,6 +19,8 @@ class PCDRegistration(rclpy.node.Node):
         """
 
         super().__init__(f"pcd_registration")
+
+        # Input parameters:
         self.declare_parameters(namespace="", parameters=[
             ("path", path),
         ])
@@ -33,8 +36,8 @@ class PCDRegistration(rclpy.node.Node):
         @return: A list of all paths to all vx250 and vx300s PCD scans from the current trial.
         """
 
-        vx250_search = os.path.join(self.dir, "vx250-*.pcd")
-        vx300s_search = os.path.join(self.dir, "vx300s-*.pcd")
+        vx250_search = os.path.join(self.dir, "vx250_*.pcd")
+        vx300s_search = os.path.join(self.dir, "vx300s_*.pcd")
         vx250_files = []
         vx300s_files = []
         vx250_files.extend(glob.glob(vx250_search))
@@ -111,6 +114,22 @@ class PCDRegistration(rclpy.node.Node):
         _, idx = pcd.remove_statistical_outlier(nb_neighbors=100, std_ratio=0.1)
         filtered = pcd.select_by_index(idx)
         return filtered
+    
+    def filter_by_x(self, pcd, x_thresh):
+        """
+        """
+
+        pcd_arr = np.asarray(pcd.points)
+        idx = np.where(np.abs(pcd_arr[:, 0]) < x_thresh)
+        return pcd.select_by_index(idx[0])
+    
+    def filter_by_z(self, pcd, z_thresh):
+        """
+        """
+
+        pcd_arr = np.asarray(pcd.points)
+        idx = np.where(np.abs(pcd_arr[:, 2]) < z_thresh)
+        return pcd.select_by_index(idx[0])
 
     def register_pcds(self, pcd, scan):
         """
@@ -121,13 +140,13 @@ class PCDRegistration(rclpy.node.Node):
         @return: A transformation matrix to align pcd to scan.
         """
 
-        criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
-            relative_fitness=1e-6, relative_rmse=1e-6, max_iterations=50)
-        pcd_down = pcd.voxel_down_sample(voxel_size=0.05)
-        scan_down = scan.voxel_down_sample(voxel_size=0.05)
+        criteria = o3d.pipelines.registration.ICPConvergenceCriteria(1e-08, 1e-08, 200)
+        pcd_down = pcd.voxel_down_sample(voxel_size=0.005)
+        scan_down = scan.voxel_down_sample(voxel_size=0.005)
         reg_p2p = o3d.pipelines.registration.registration_icp(
-            pcd_down, scan_down, 0.1, np.eye(4, 4),
-            o3d.pipelines.registration.TransformationEstimationPointToPoint(criteria=criteria),
+            pcd_down, scan_down, 0.05, np.eye(4, 4),
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(with_scaling=False),
+            criteria
         )
         return reg_p2p.transformation
 
@@ -139,7 +158,7 @@ class PCDRegistration(rclpy.node.Node):
         register, stitch, and filter the PCD files, and then save the result to the input directory.
         """
 
-        self.transform_pcds()
+        #self.transform_pcds()
         scan = o3d.geometry.PointCloud()
         for idx, pcd in enumerate(self.pcd_):
             pcd = self.remove_pcd_outlier(pcd)
@@ -149,6 +168,10 @@ class PCDRegistration(rclpy.node.Node):
                 tf = self.register_pcds(pcd, scan)
                 pcd.transform(tf)
                 scan += pcd
+
+        scan = self.filter_by_x(scan, 1.0)
+        scan = self.filter_by_z(scan, 1.0)
+        o3d.visualization.draw_geometries([scan])
 
 
 def main():

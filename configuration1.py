@@ -23,7 +23,7 @@ def main():
     primary = VXManipulator("primary")
     if not get_vx_node_status(primary):
         print(f"{primary.robot_model} is offline, please launch the interbotix control node")
-        pass
+        return
 
     # Check whether PCD file exists and if not, check if STL file exists:
     path2pcd = os.path.join(os.path.expanduser("~/rms_ros/src/rms_ros/models/pcd/"), f"{part_id}.pcd")
@@ -34,7 +34,7 @@ def main():
             write_pcd_from_stl(path2stl, path2pcd)
         else:
             print(f"unable to find {part_id}.stl, please check if it is in the models/stl/ subdirectory")
-            pass
+            return
 
     # Collect point clouds:
     primary_dir = get_primary_write_dir(1)
